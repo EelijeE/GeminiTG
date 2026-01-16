@@ -24,6 +24,7 @@ MODELS_TO_TRY = [
     "gemini-1.5-flash",          # Самая надежная рабочая лошадка
     "gemini-2.0-flash",          # Новая, умная (если 1.5 не справится)
     "gemini-2.0-flash-lite-preview-02-05",
+    "gemini-3-flash-preview",
 ]
 
 async def generate_with_fallback(contents):
