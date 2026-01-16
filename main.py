@@ -3,103 +3,70 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from google import genai
 from google.genai import types
 import os
+import base64
 
 app = FastAPI()
 
-# Получаем ключ
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Настраиваем НОВЫЙ клиент Google (по вашему примеру)
-# Если ключа нет, клиент не создастся, ошибку обработаем позже
+# Клиент Google
 client = None
 if GEMINI_API_KEY:
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Список моделей для проверки (Новая библиотека любит простые имена)
-MODELS_TO_TRY = [
-    "gemini-2.0-flash",       # Самая новая стабильная
-    "gemini-2.0-flash-lite",  # Облегченная версия 2.0
-    "gemini-1.5-flash",       # Классика, работает всегда
-    "gemini-1.5-pro",
-    "gemini-3-flash-preview",
-]
-
-WORKING_MODEL = None
-
-async def find_working_model():
-    """Ищет рабочую модель, используя новый клиент"""
-    global WORKING_MODEL
-    if WORKING_MODEL: return WORKING_MODEL
-    
-    print("🔍 Тестируем модели через google.genai...")
-    
-    for model_name in MODELS_TO_TRY:
-        try:
-            # Тестовый запрос "Привет"
-            response = client.models.generate_content(
-                model=model_name,
-                contents="Hi"
-            )
-            print(f"✅ УСПЕХ! Модель {model_name} работает!")
-            WORKING_MODEL = model_name
-            return model_name
-        except Exception as e:
-            error_str = str(e)
-            # Если 429 (лимит) - идем дальше. Если 404 - идем дальше.
-            print(f"❌ {model_name} не подошла: {error_str[:100]}...")
-    
-    return None
+# Список моделей (2.0 Flash отлично видит картинки!)
+MODEL_NAME = "gemini-2.0-flash" 
 
 @app.post("/api/chat")
 async def chat(request: Request):
-    global WORKING_MODEL
-    
     if not client:
-        return JSONResponse({"reply": "⚠️ Ошибка: Нет API ключа в настройках Render."})
+        return JSONResponse({"reply": "⚠️ Ошибка: Нет API ключа."})
 
-    # 1. Если модель еще не выбрана - ищем
-    if not WORKING_MODEL:
-        found = await find_working_model()
-        if not found:
-            return JSONResponse({"reply": "⚠️ Все модели заняты или недоступны. Проверьте квоты в Google AI Studio."})
-
-    # 2. Обрабатываем сообщение пользователя
     data = await request.json()
     user_message = data.get("message", "")
+    image_b64 = data.get("image", None) # Получаем картинку
+
+    # Собираем содержимое для отправки
+    contents = []
     
-    if not user_message:
-        return JSONResponse({"error": "Пустое сообщение"})
+    # 1. Если есть картинка - добавляем её
+    if image_b64:
+        try:
+            image_bytes = base64.b64decode(image_b64)
+            contents.append(
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+            )
+        except Exception as e:
+            return JSONResponse({"reply": f"Ошибка обработки картинки: {str(e)}"})
+
+    # 2. Если есть текст - добавляем его (или просим описать фото, если текста нет)
+    if user_message:
+        contents.append(types.Part.from_text(text=user_message))
+    elif image_b64:
+        contents.append(types.Part.from_text(text="Что изображено на этой картинке? Подробно опиши."))
+    else:
+        return JSONResponse({"reply": "Пришлите текст или фото."})
 
     try:
-        # 3. Отправляем запрос через НОВУЮ библиотеку
+        # Отправляем мультимодальный запрос
         response = client.models.generate_content(
-            model=WORKING_MODEL,
-            contents=user_message
+            model=MODEL_NAME,
+            contents=[types.Content(parts=contents)]
         )
-        
-        # Достаем текст (в новой библиотеке это просто .text)
         return JSONResponse({"reply": response.text})
 
     except Exception as e:
-        # Если рабочая модель вдруг отказала, сбрасываем выбор
-        error_msg = str(e)
-        if "429" in error_msg or "404" in error_msg:
-            WORKING_MODEL = None
-        return JSONResponse({"reply": f"Ошибка генерации: {error_msg}"})
+        return JSONResponse({"reply": f"Ошибка Gemini: {str(e)}"})
 
-# --- РАЗДАЧА САЙТА ---
+# --- Раздача файлов сайта ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     if os.path.exists("index.html"):
-        with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
-    return "<h1>Загрузка...</h1>"
+        with open("index.html", "r", encoding="utf-8") as f: return f.read()
+    return "Загрузка..."
 
 @app.get("/{filename}")
 async def read_static(filename: str):
-    if filename in ["script.js", "style.css"]:
-        if os.path.exists(filename):
-            with open(filename, "r", encoding="utf-8") as f:
-                media_type = "application/javascript" if filename.endswith(".js") else "text/css"
-                return HTMLResponse(content=f.read(), media_type=media_type)
+    if os.path.exists(filename):
+        with open(filename, "r", encoding="utf-8") as f: return f.read()
     return JSONResponse({"error": "Not found"}, status_code=404)
