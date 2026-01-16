@@ -10,48 +10,35 @@ app = FastAPI()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Клиент Google
 client = None
 if GEMINI_API_KEY:
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-    except Exception as e:
-        print(f"Ошибка создания клиента: {e}")
+    except:
+        pass
 
-# СПИСОК МОДЕЛЕЙ (По приоритету)
-# Мы поставили 3-ю версию первой, так как вы сказали, что она работала
+# Список моделей
 MODELS_TO_TRY = [
     "gemini-3-flash-preview", 
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite-preview-02-05", # Свежая версия из вашего списка
-    "gemini-1.5-flash",
-    "gemini-1.5-pro"
+    "gemini-2.0-flash-lite-preview-02-05",
+    "gemini-1.5-flash"
 ]
 
 async def generate_with_fallback(contents):
-    """Пытается отправить запрос по очереди во все модели"""
-    if not client:
-        return "Ошибка: Не настроен API ключ."
-
-    last_error = ""
+    if not client: return "Ошибка: Нет ключа."
     
     for model_name in MODELS_TO_TRY:
-        print(f"🔄 Пробую модель: {model_name}...")
         try:
             response = client.models.generate_content(
                 model=model_name,
                 contents=contents
             )
-            print(f"✅ УСПЕХ! Сработала модель: {model_name}")
             return response.text
         except Exception as e:
-            error_str = str(e)
-            print(f"❌ {model_name} не справилась: {error_str}")
-            last_error = error_str
-            # Если ошибка критическая (нет доступа), пробуем следующую
-            continue
+            continue # Пробуем следующую
     
-    return f"Все модели дали сбой. Последняя ошибка: {last_error}"
+    return "Не удалось получить ответ от нейросети."
 
 @app.post("/api/chat")
 async def chat(request: Request):
@@ -59,46 +46,53 @@ async def chat(request: Request):
         data = await request.json()
         user_message = data.get("message", "")
         image_b64 = data.get("image", None)
+        history = data.get("history", []) # <-- Получаем историю от браузера
 
-        # Собираем части сообщения (текст + картинка)
-        parts = []
+        # Собираем ВЕСЬ диалог (contents)
+        contents = []
+
+        # 1. Сначала добавляем старые сообщения в список
+        for msg in history:
+            role = msg.get("role") # user или model
+            text = msg.get("text")
+            if text:
+                contents.append(types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=text)]
+                ))
+
+        # 2. Теперь готовим ТЕКУЩЕЕ сообщение
+        current_parts = []
         
-        # 1. Обработка картинки
         if image_b64:
             try:
-                # Декодируем base64 в байты
                 image_bytes = base64.b64decode(image_b64)
-                parts.append(
+                current_parts.append(
                     types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
                 )
-            except Exception as e:
-                print(f"Ошибка картинки: {e}")
-                return JSONResponse({"reply": "Не удалось обработать картинку."})
+            except:
+                pass
 
-        # 2. Обработка текста
         if user_message:
-            parts.append(types.Part.from_text(text=user_message))
+            current_parts.append(types.Part.from_text(text=user_message))
         elif image_b64:
-            # Если текста нет, но есть фото - добавляем промпт
-            parts.append(types.Part.from_text(text="Опиши подробно, что на этом изображении?"))
-        else:
-            return JSONResponse({"reply": "Пустое сообщение."})
+            current_parts.append(types.Part.from_text(text="Что на этом изображении?"))
 
-        # 3. Запуск генерации с перебором моделей
-        # Формируем объект Content правильно для новой библиотеки
-        content_obj = types.Content(parts=parts)
-        
-        reply_text = await generate_with_fallback(contents=[content_obj])
+        # Добавляем текущее сообщение в конец списка
+        if current_parts:
+            contents.append(types.Content(role="user", parts=current_parts))
+        else:
+             return JSONResponse({"reply": "Пустой запрос"})
+
+        # 3. Отправляем ВЕСЬ список
+        reply_text = await generate_with_fallback(contents=contents)
         
         return JSONResponse({"reply": reply_text})
 
     except Exception as e:
-        # Ловим любые падения сервера, чтобы не было ошибки 502
-        error_trace = traceback.format_exc()
-        print(f"🔥 КРИТИЧЕСКАЯ ОШИБКА СЕРВЕРА:\n{error_trace}")
-        return JSONResponse({"reply": f"Ошибка сервера (см. логи): {str(e)}"})
+        return JSONResponse({"reply": f"Ошибка: {str(e)}"})
 
-# --- Раздача статики ---
+# --- Статика ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     if os.path.exists("index.html"):
