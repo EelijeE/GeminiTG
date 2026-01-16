@@ -3,83 +3,229 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gemini Bot</title>
+    <title>Gemini AI</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
     <style>
+        /* --- 1. Основные стили Telegram --- */
         body {
-            background-color: var(--tg-theme-bg-color, #fff);
-            color: var(--tg-theme-text-color, #000);
-            font-family: sans-serif;
-            margin: 0; padding: 0;
-            display: flex; flex-direction: column; height: 100vh;
+            background-color: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh; /* На весь экран */
+            overflow: hidden;
         }
+
+        /* --- 2. Контейнер чата --- */
         #chat-container {
-            flex: 1; overflow-y: auto; padding: 15px;
-            display: flex; flex-direction: column; gap: 10px;
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            scroll-behavior: smooth;
         }
+
+        /* --- 3. Сообщения --- */
         .message {
-            max-width: 85%; padding: 10px 14px; border-radius: 12px;
-            line-height: 1.5; word-wrap: break-word; font-size: 15px;
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 16px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            font-size: 15px;
+            position: relative;
+            animation: fadeIn 0.3s ease;
         }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Сообщение пользователя (Справа) */
         .user-message {
             align-self: flex-end;
             background-color: var(--tg-theme-button-color, #3390ec);
-            color: var(--tg-theme-button-text-color, #fff);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            border-bottom-right-radius: 4px;
         }
+
+        /* Сообщение Бота (Слева) */
         .bot-message {
             align-self: flex-start;
-            background-color: var(--tg-theme-secondary-bg-color, #f1f1f1);
+            background-color: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            color: var(--tg-theme-text-color, #000000);
+            border-bottom-left-radius: 4px;
         }
+
+        /* Стили для кода внутри сообщений */
+        .bot-message pre {
+            background: rgba(0, 0, 0, 0.1);
+            padding: 10px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        .bot-message code {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+        }
+
+        /* --- 4. Зона ввода --- */
         #input-area {
-            padding: 10px; display: flex; gap: 10px;
-            border-top: 1px solid #ccc;
-            background-color: var(--tg-theme-bg-color, #fff);
+            background-color: var(--tg-theme-bg-color, #ffffff);
+            padding: 10px 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-top: 1px solid var(--tg-theme-hint-color, #cccccc);
+            padding-bottom: max(10px, env(safe-area-inset-bottom)); /* Для iPhone */
         }
-        input { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid #ccc; }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border-radius: 20px;
+            border: 1px solid var(--tg-theme-hint-color, #ccc);
+            background-color: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            color: var(--tg-theme-text-color, #000);
+            outline: none;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--tg-theme-button-color, #3390ec);
+        }
+
         button {
             background-color: var(--tg-theme-button-color, #3390ec);
-            color: white; border: none; border-radius: 50%;
-            width: 44px; height: 44px; cursor: pointer;
+            color: var(--tg-theme-button-text-color, #fff);
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.1s;
         }
+
+        button:active {
+            transform: scale(0.9);
+        }
+
+        /* --- 5. Анимация загрузки (Точки) --- */
+        .typing-indicator {
+            display: inline-flex;
+            gap: 4px;
+            padding: 5px 0;
+        }
+        .typing-indicator span {
+            width: 6px;
+            height: 6px;
+            background-color: var(--tg-theme-text-color);
+            border-radius: 50%;
+            opacity: 0.6;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* Ссылки в тексте */
+        a { color: var(--tg-theme-link-color, #3390ec); }
     </style>
 </head>
 <body>
+
     <div id="chat-container">
-        <div class="message bot-message">Привет! Я Gemini. Пиши, я готов.</div>
+        <div class="message bot-message">
+            Привет! Я Gemini. Я вижу мир, пишу код и помогаю с идеями. Что обсудим?
+        </div>
     </div>
+
     <div id="input-area">
         <input type="text" id="message-input" placeholder="Сообщение..." autocomplete="off">
-        <button id="send-btn">➤</button>
+        <button id="send-btn">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
     </div>
 
     <script>
+        // Инициализация Telegram Mini App
         const tg = window.Telegram.WebApp;
-        tg.expand();
+        tg.expand(); // Раскрыть на весь экран
         
+        // Красим шапку приложения в цвет темы
+        tg.setHeaderColor(tg.themeParams.bg_color || '#ffffff');
+        tg.setBackgroundColor(tg.themeParams.bg_color || '#ffffff');
+
         const chatContainer = document.getElementById('chat-container');
         const messageInput = document.getElementById('message-input');
         const sendBtn = document.getElementById('send-btn');
+        let isWaiting = false;
 
-        function addMessage(text, sender) {
+        // Функция добавления сообщения
+        function addMessage(text, sender, isLoading = false) {
             const div = document.createElement('div');
             div.classList.add('message', sender === 'user' ? 'user-message' : 'bot-message');
             
-            if (sender === 'bot' && typeof marked !== 'undefined') {
-                div.innerHTML = marked.parse(text);
+            if (isLoading) {
+                div.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+                div.id = 'loading-bubble';
             } else {
-                div.textContent = text;
+                if (sender === 'bot') {
+                    // Парсим Markdown
+                    try {
+                        div.innerHTML = marked.parse(text);
+                        // Подсветка кода (если есть блоки кода)
+                        div.querySelectorAll('pre code').forEach((block) => {
+                            hljs.highlightElement(block);
+                        });
+                    } catch (e) {
+                        div.textContent = text;
+                    }
+                } else {
+                    div.textContent = text;
+                }
             }
+            
             chatContainer.appendChild(div);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+            // Плавная прокрутка вниз
+            setTimeout(() => {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }, 50);
         }
 
         async function sendMessage() {
+            if (isWaiting) return; // Защита от двойного клика
+            
             const text = messageInput.value.trim();
             if (!text) return;
 
+            // Вибрация при отправке (фишка Telegram)
+            if(tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+
             addMessage(text, 'user');
             messageInput.value = '';
+            
+            // Показываем анимацию "печатает..."
+            isWaiting = true;
+            addMessage('', 'bot', true);
 
             try {
                 const response = await fetch('/api/chat', {
@@ -87,10 +233,23 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: text })
                 });
+                
                 const data = await response.json();
-                addMessage(data.reply || data.error, 'bot');
-            } catch (e) {
-                addMessage('Ошибка сети: ' + e.message, 'bot');
+                
+                // Удаляем индикатор загрузки
+                const loadingBubble = document.getElementById('loading-bubble');
+                if (loadingBubble) loadingBubble.remove();
+
+                if (data.reply) {
+                    addMessage(data.reply, 'bot');
+                } else {
+                    addMessage('Ошибка: ' + (data.error || 'Нет ответа'), 'bot');
+                }
+            } catch (error) {
+                document.getElementById('loading-bubble')?.remove();
+                addMessage('Ошибка сети. Проверьте интернет.', 'bot');
+            } finally {
+                isWaiting = false;
             }
         }
 
@@ -98,6 +257,14 @@
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
         });
+
+        // Слушаем изменение темы в Telegram (если пользователь сменил ночь/день)
+        tg.onEvent('themeChanged', function() {
+            document.body.style.backgroundColor = tg.themeParams.bg_color;
+            document.body.style.color = tg.themeParams.text_color;
+            tg.setHeaderColor(tg.themeParams.bg_color);
+        });
+
     </script>
 </body>
 </html>
