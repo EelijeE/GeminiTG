@@ -16,28 +16,35 @@ if GEMINI_API_KEY:
     except:
         pass
 
-# Для аудио лучше всего подходит 1.5 Flash (она быстрая и мультимодальная)
+# СПИСОК СТАБИЛЬНЫХ МОДЕЛЕЙ (Текст + Фото)
 MODELS_TO_TRY = [
-    "gemini-1.5-flash", 
-    "gemini-1.5-flash-latest",
-    "gemini-2.0-flash",
-    "gemini-3-flash-preview"
+    "gemini-3-flash-preview",# Мощная (резерв)
+    "gemini-1.5-flash",          # Самая надежная
+    "gemini-1.5-flash-latest",   # Свежая
+    "gemini-2.0-flash-lite-preview-02-05", # Быстрая новая
+    "gemini-2.0-flash"  
 ]
 
 async def generate_with_fallback(contents):
     if not client: return "Ошибка: Нет ключа."
     
+    last_error = ""
+    
     for model_name in MODELS_TO_TRY:
         try:
+            print(f"🔄 Пробую: {model_name}")
             response = client.models.generate_content(
                 model=model_name,
                 contents=contents
             )
+            print(f"✅ Успех: {model_name}")
             return response.text
         except Exception as e:
-            print(f"Ошибка {model_name}: {e}")
+            print(f"❌ Пропуск {model_name}: {e}")
+            last_error = str(e)
             continue
-    return "Не удалось обработать запрос."
+            
+    return f"Не удалось получить ответ. ({last_error[:100]})"
 
 @app.post("/api/chat")
 async def chat(request: Request):
@@ -45,22 +52,10 @@ async def chat(request: Request):
         data = await request.json()
         user_message = data.get("message", "")
         image_b64 = data.get("image", None)
-        audio_b64 = data.get("audio", None) # <-- Получаем аудио
 
         parts = []
 
-        # 1. Если есть АУДИО
-        if audio_b64:
-            try:
-                audio_bytes = base64.b64decode(audio_b64)
-                # Браузеры обычно пишут в webm или ogg. Gemini 1.5 это понимает.
-                parts.append(
-                    types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
-                )
-            except Exception as e:
-                return JSONResponse({"reply": f"Ошибка аудио: {e}"})
-
-        # 2. Если есть ФОТО
+        # 1. КАРТИНКА
         if image_b64:
             try:
                 image_bytes = base64.b64decode(image_b64)
@@ -70,29 +65,23 @@ async def chat(request: Request):
             except:
                 pass
 
-        # 3. Если есть ТЕКСТ
+        # 2. ТЕКСТ
         if user_message:
             parts.append(types.Part.from_text(text=user_message))
         
-        # 4. Если нет текста, но есть медиа - добавляем промпт
-        if not user_message and (image_b64 or audio_b64):
-            if audio_b64 and image_b64:
-                parts.append(types.Part.from_text(text="Послушай аудио и посмотри на картинку. Что ты думаешь?"))
-            elif audio_b64:
-                parts.append(types.Part.from_text(text="Что сказано в этом аудио? Ответь на том же языке."))
-            elif image_b64:
-                parts.append(types.Part.from_text(text="Что на фото?"))
+        # 3. ЕСЛИ ТОЛЬКО ФОТО
+        if not user_message and image_b64:
+            parts.append(types.Part.from_text(text="Что на этом фото?"))
 
         if not parts:
-            return JSONResponse({"reply": "Пустой запрос"})
+            return JSONResponse({"reply": "Пустое сообщение"})
 
-        # Генерация
         reply_text = await generate_with_fallback(contents=[types.Content(parts=parts)])
         
         return JSONResponse({"reply": reply_text})
 
     except Exception as e:
-        return JSONResponse({"reply": f"Ошибка: {str(e)}"})
+        return JSONResponse({"reply": f"Ошибка сервера: {str(e)}"})
 
 # --- Статика ---
 @app.get("/", response_class=HTMLResponse)
