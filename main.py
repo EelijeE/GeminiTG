@@ -15,7 +15,7 @@ if GEMINI_API_KEY:
     client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Список моделей (2.0 Flash отлично видит картинки!)
-MODEL_NAME = "gemini-2.0-flash" 
+MODEL_NAME = "gemini-3-flash-preview" 
 
 @app.post("/api/chat")
 async def chat(request: Request):
