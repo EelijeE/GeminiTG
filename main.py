@@ -10,6 +10,7 @@ app = FastAPI()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Клиент
 client = None
 if GEMINI_API_KEY:
     try:
@@ -17,28 +18,42 @@ if GEMINI_API_KEY:
     except:
         pass
 
-# Список моделей
+# СПИСОК МОДЕЛЕЙ (ОТ СТАБИЛЬНЫХ К НОВЫМ)
+# Мы ставим 1.5 Flash первой, потому что у неё идеальная память.
 MODELS_TO_TRY = [
-    "gemini-3-flash-preview", 
-    "gemini-2.0-flash",
+    "gemini-1.5-flash",          # Самая надежная рабочая лошадка
+    "gemini-2.0-flash",          # Новая, умная (если 1.5 не справится)
     "gemini-2.0-flash-lite-preview-02-05",
-    "gemini-1.5-flash"
 ]
 
 async def generate_with_fallback(contents):
     if not client: return "Ошибка: Нет ключа."
     
+    last_error = ""
+    
+    # Настройки генерации (делаем бота чуть строже к фактам)
+    config = types.GenerateContentConfig(
+        temperature=0.7,
+        system_instruction="Ты полезный и вежливый ассистент. Ты всегда помнишь контекст беседы и имя пользователя, если он представился."
+    )
+
     for model_name in MODELS_TO_TRY:
+        print(f"🔄 Пробую модель: {model_name}")
         try:
             response = client.models.generate_content(
                 model=model_name,
-                contents=contents
+                contents=contents,
+                config=config 
             )
+            print(f"✅ Успех на модели: {model_name}")
             return response.text
         except Exception as e:
-            continue # Пробуем следующую
+            error_msg = str(e)
+            print(f"❌ Ошибка {model_name}: {error_msg}")
+            last_error = error_msg
+            continue # Идем к следующей
     
-    return "Не удалось получить ответ от нейросети."
+    return f"Все модели заняты или недоступны. Ошибка: {last_error}"
 
 @app.post("/api/chat")
 async def chat(request: Request):
@@ -46,14 +61,14 @@ async def chat(request: Request):
         data = await request.json()
         user_message = data.get("message", "")
         image_b64 = data.get("image", None)
-        history = data.get("history", []) # <-- Получаем историю от браузера
+        history = data.get("history", []) 
 
-        # Собираем ВЕСЬ диалог (contents)
+        # Собираем контекст для отправки
         contents = []
 
-        # 1. Сначала добавляем старые сообщения в список
+        # 1. ЗАГРУЖАЕМ ПРОШЛОЕ (ИСТОРИЮ)
         for msg in history:
-            role = msg.get("role") # user или model
+            role = msg.get("role") 
             text = msg.get("text")
             if text:
                 contents.append(types.Content(
@@ -61,7 +76,7 @@ async def chat(request: Request):
                     parts=[types.Part.from_text(text=text)]
                 ))
 
-        # 2. Теперь готовим ТЕКУЩЕЕ сообщение
+        # 2. ДОБАВЛЯЕМ ТЕКУЩЕЕ СООБЩЕНИЕ
         current_parts = []
         
         if image_b64:
@@ -78,21 +93,21 @@ async def chat(request: Request):
         elif image_b64:
             current_parts.append(types.Part.from_text(text="Что на этом изображении?"))
 
-        # Добавляем текущее сообщение в конец списка
         if current_parts:
             contents.append(types.Content(role="user", parts=current_parts))
         else:
              return JSONResponse({"reply": "Пустой запрос"})
 
-        # 3. Отправляем ВЕСЬ список
+        # 3. ГЕНЕРАЦИЯ
         reply_text = await generate_with_fallback(contents=contents)
         
         return JSONResponse({"reply": reply_text})
 
     except Exception as e:
-        return JSONResponse({"reply": f"Ошибка: {str(e)}"})
+        print(f"CRITICAL ERROR: {e}")
+        return JSONResponse({"reply": f"Ошибка сервера: {str(e)}"})
 
-# --- Статика ---
+# --- Раздача файлов ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     if os.path.exists("index.html"):
