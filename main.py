@@ -20,7 +20,8 @@ if GEMINI_API_KEY:
 MODELS_TO_TRY = [
     "gemini-1.5-flash", 
     "gemini-1.5-flash-latest",
-    "gemini-2.0-flash"
+    "gemini-2.0-flash",
+    "gemini-3-flash-preview"
 ]
 
 async def generate_with_fallback(contents):
