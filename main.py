@@ -21,6 +21,7 @@ MODELS_TO_TRY = [
     "gemini-2.0-flash-lite",  # Облегченная версия 2.0
     "gemini-1.5-flash",       # Классика, работает всегда
     "gemini-1.5-pro",
+    "gemini-3-flash-preview",
 ]
 
 WORKING_MODEL = None
